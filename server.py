@@ -7,6 +7,10 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 from dotenv import load_dotenv
 import sys, os, json
+from rag.engine import RagEngine
+from fastapi import UploadFile, File
+import httpx
+import pathlib
 
 # 把agent目录加入path
 sys.path.insert(0, os.path.dirname(__file__))
@@ -14,6 +18,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 load_dotenv()
 
 from graph import build_graph
+rag_engine = RagEngine()
 
 app = FastAPI(title="IntelliService Agent")
 agent_graph = build_graph()
@@ -27,6 +32,55 @@ class ChatOutput(BaseModel):
     reply: str
     agent_name: str = ""
     token_count: int = 0
+
+
+JAVA_BACKEND = "http://localhost:8080"
+
+
+@app.post("/agent/knowledge/upload")
+async def upload_knowledge(request: dict):
+    """Java后端调用：解析文档并存入向量库"""
+    doc_id = request.get("doc_id")
+    file_path = request.get("file_path")
+    filename = request.get("filename", "")
+
+    print(f"收到文档处理请求: doc_id={doc_id}, file={filename}")
+
+    try:
+        # 加载并处理文档
+        chunk_count = rag_engine.load_file(file_path, doc_id=str(doc_id))
+
+        # 回调Java更新状态为ready
+        async with httpx.AsyncClient() as client:
+            await client.put(
+                f"{JAVA_BACKEND}/api/knowledge/documents/{doc_id}/status",
+                json={"status": "ready", "chunkCount": chunk_count}
+            )
+
+        return {"status": "success", "chunk_count": chunk_count}
+
+    except Exception as e:
+        print(f"文档处理失败: {e}")
+        # 回调Java更新状态为failed
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.put(
+                    f"{JAVA_BACKEND}/api/knowledge/documents/{doc_id}/status",
+                    json={"status": "failed", "chunkCount": 0}
+                )
+        except:
+            pass
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/agent/knowledge/{doc_id}")
+async def delete_knowledge(doc_id: str):
+    """删除向量库中对应文档的数据"""
+    try:
+        rag_engine.delete_by_doc_id(doc_id)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.post("/agent/chat")
 async def chat(input: ChatInput):
