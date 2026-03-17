@@ -10,6 +10,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from typing import Literal
 from dotenv import load_dotenv
 import os, json
+from rag.engine import RagEngine
 
 load_dotenv()
 
@@ -22,6 +23,8 @@ llm = ChatOpenAI(
 )
 
 java_client = JavaMcpClient("http://localhost:8080")
+
+rag_engine = RagEngine()
 
 # ========== 定义工具（调用Java MCP） ==========
 
@@ -45,17 +48,9 @@ def create_ticket(title: str, description: str, priority: str = "medium") -> str
 @tool
 def search_knowledge(query: str) -> str:
     """从知识库搜索产品相关信息"""
-    # 后面接入RAG，现在先用模拟数据
-    knowledge = {
-        "退换货": "所有商品支持7天无理由退换货，需保持商品及包装完好。退款3个工作日内原路退回。",
-        "会员": "黄金会员：年消费满2000元，享95折和每月10次免运费。钻石会员：年消费满5000元，享9折和无限免运费。",
-        "充电器": "Type-C快充充电器89元，支持65W快充。无线充电板129元。保修期1年。",
-        "手机壳": "航空级TPU材质，普通款39元，磁吸款69元。非人为损坏30天内免费更换。",
-    }
-    for key, value in knowledge.items():
-        if key in query:
-            return json.dumps({"answer": value}, ensure_ascii=False)
-    return json.dumps({"answer": "抱歉，没有找到相关信息，建议咨询人工客服。"}, ensure_ascii=False)
+    import json
+    result = rag_engine.search(query)
+    return json.dumps({"answer": result}, ensure_ascii=False)
 
 # ========== Agent节点 ==========
 
